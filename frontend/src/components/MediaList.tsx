@@ -853,7 +853,7 @@ export function MediaList({ accountInfo, timeline, totalUrls, fetchedMediaType =
                 </div>
               </div>);
             })}
-        </div>) : (<div className={`grid gap-3 ${viewMode === "large" ? "grid-cols-4" : "grid-cols-6"}`}>
+        </div>) : (<div className={`grid gap-3 ${viewMode === "large" ? "grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]" : "grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]"}`}>
           {filteredTimeline.slice(0, visibleCount).map((item, index) => {
                 const itemKey = getItemKey(item);
                 const isSelected = selectedItems.has(itemKey);

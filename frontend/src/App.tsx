@@ -1506,6 +1506,9 @@ function App() {
           </>);
         }
     };
+    const usesWideContent = currentPage === "main"
+        ? fetchType === "multiple" || !!result
+        : !["settings", "support"].includes(currentPage);
     return (<TooltipProvider>
       <div className="h-screen overflow-hidden bg-background">
         <DependencySetupDialog />
@@ -1514,7 +1517,7 @@ function App() {
 
         <div id="app-content-scroll" className="fixed top-10 right-0 bottom-0 left-14 overflow-y-auto overflow-x-hidden">
           <div className="p-4 md:p-8">
-            <div className="max-w-5xl mx-auto">
+            <div className={usesWideContent ? "w-full" : "max-w-5xl mx-auto"}>
               {renderPage()}
             </div>
           </div>

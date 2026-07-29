@@ -41,21 +41,33 @@ func unregisterExtractorCommand(cmd *exec.Cmd) {
 	activeExtractorCommands.Unlock()
 }
 
-func runTrackedExtractorCommand(cmd *exec.Cmd) ([]byte, error) {
-	var output bytes.Buffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
+func runTrackedExtractorCommand(cmd *exec.Cmd) (stdout, stderr []byte, err error) {
+	var stdoutBuffer bytes.Buffer
+	var stderrBuffer bytes.Buffer
+	cmd.Stdout = &stdoutBuffer
+	cmd.Stderr = &stderrBuffer
 
 	hideWindow(cmd)
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	registerExtractorCommand(cmd)
 	defer unregisterExtractorCommand(cmd)
 
-	err := cmd.Wait()
-	return output.Bytes(), err
+	err = cmd.Wait()
+	return stdoutBuffer.Bytes(), stderrBuffer.Bytes(), err
+}
+
+func extractorErrorOutput(stdout, stderr []byte) string {
+	parts := make([]string, 0, 2)
+	if text := strings.TrimSpace(string(stderr)); text != "" {
+		parts = append(parts, text)
+	}
+	if text := strings.TrimSpace(string(stdout)); text != "" {
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func getExecutableName() string {
@@ -745,10 +757,10 @@ func ExtractTimeline(req TimelineRequest) (*TwitterResponse, error) {
 		"PYTHONIOENCODING=utf-8",
 		"PYTHONUTF8=1",
 	)
-	output, err := runTrackedExtractorCommand(cmd)
+	stdout, stderr, err := runTrackedExtractorCommand(cmd)
 
 	if err != nil {
-		outputStr := string(output)
+		outputStr := extractorErrorOutput(stdout, stderr)
 		if strings.TrimSpace(outputStr) == "" {
 			return nil, fmt.Errorf("xtractor process terminated before returning data")
 		}
@@ -756,13 +768,12 @@ func ExtractTimeline(req TimelineRequest) (*TwitterResponse, error) {
 		return nil, fmt.Errorf("%s", errorMsg)
 	}
 
-	jsonStr := extractJSON(string(output))
+	jsonStr := strings.TrimSpace(string(stdout))
 	if jsonStr == "" {
-		outputStr := string(output)
-		if strings.TrimSpace(outputStr) == "" {
+		if strings.TrimSpace(string(stderr)) == "" {
 			return nil, fmt.Errorf("empty_response: Xtractor returned no data. The timeline may be empty or inaccessible")
 		}
-		return nil, fmt.Errorf("parse_error: Could not parse xtractor output. Raw output: %s", outputStr)
+		return nil, fmt.Errorf("empty_response: Xtractor returned no JSON. Logs: %s", strings.TrimSpace(string(stderr)))
 	}
 
 	resp, err := parseRichResponse(jsonStr)
@@ -847,10 +858,10 @@ func ExtractDateRange(req DateRangeRequest) (*TwitterResponse, error) {
 		"PYTHONIOENCODING=utf-8",
 		"PYTHONUTF8=1",
 	)
-	output, err := runTrackedExtractorCommand(cmd)
+	stdout, stderr, err := runTrackedExtractorCommand(cmd)
 
 	if err != nil {
-		outputStr := string(output)
+		outputStr := extractorErrorOutput(stdout, stderr)
 		if strings.TrimSpace(outputStr) == "" {
 			return nil, fmt.Errorf("xtractor process terminated before returning data")
 		}
@@ -858,13 +869,12 @@ func ExtractDateRange(req DateRangeRequest) (*TwitterResponse, error) {
 		return nil, fmt.Errorf("%s", errorMsg)
 	}
 
-	jsonStr := extractJSON(string(output))
+	jsonStr := strings.TrimSpace(string(stdout))
 	if jsonStr == "" {
-		outputStr := string(output)
-		if strings.TrimSpace(outputStr) == "" {
+		if strings.TrimSpace(string(stderr)) == "" {
 			return nil, fmt.Errorf("empty_response: Xtractor returned no data. The timeline may be empty or inaccessible")
 		}
-		return nil, fmt.Errorf("parse_error: Could not parse xtractor output. Raw output: %s", outputStr)
+		return nil, fmt.Errorf("empty_response: Xtractor returned no JSON. Logs: %s", strings.TrimSpace(string(stderr)))
 	}
 
 	resp, err := parseRichResponse(jsonStr)
@@ -904,26 +914,4 @@ func getExtractorPath() string {
 	homeDir, _ := os.UserHomeDir()
 	baseDir := filepath.Join(homeDir, ".twitterxmediabatchdownloader")
 	return filepath.Join(baseDir, getExecutableName())
-}
-
-func extractJSON(output string) string {
-
-	start := strings.Index(output, "{")
-	if start == -1 {
-		return ""
-	}
-
-	depth := 0
-	for i := start; i < len(output); i++ {
-		if output[i] == '{' {
-			depth++
-		} else if output[i] == '}' {
-			depth--
-			if depth == 0 {
-				return output[start : i+1]
-			}
-		}
-	}
-
-	return ""
 }

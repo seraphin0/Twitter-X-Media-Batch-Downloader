@@ -9,20 +9,19 @@
       href="https://github.com/afkarxyz/Twitter-X-Media-Batch-Downloader/releases"><img
         src="https://img.shields.io/github/downloads/afkarxyz/Twitter-X-Media-Batch-Downloader/total?color=22c55e&labelColor=black&logo=github&label=Downloads" /></a><a
       href="https://github.com/afkarxyz/Twitter-X-Media-Batch-Downloader/releases/latest"><img
-        src="https://img.shields.io/github/v/release/afkarxyz/Twitter-X-Media-Batch-Downloader?color=8b5cf6&labelColor=black&logo=github&label=Latest%20Release" /></a><a
+        src="https://img.shields.io/github/v/release/afkarxyz/Twitter-X-Media-Batch-Downloader?color=8b5cf6&labelColor=black&logo=github&label=Latest%20Release" /></a><a href="https://github.com/afkarxyz/Twitter-X-Media-Batch-Downloader/releases/latest"><img
+        src="https://img.shields.io/badge/Windows-369eff?labelColor=black&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiB2aWV3Qm94PSIwIDAgMjAgMjAiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGZpbGwtcnVsZT0iZXZlbm9kZCIgZD0iTTIwIDEwLjg3M1YyMEw4LjQ3OSAxOC41MzdsLjAwMS03LjY2NEgyMFptLTEzLjEyIDBsLS4wMDEgNy40NjFMMCAxNy40NjF2LTYuNTg4aDYuODhaTTIwIDkuMjczSDguNDhsLS4wMDEtNy44MUwyMCAwdjkuMjczWk02Ljg3OSAxLjY2NmwuMDAxIDcuNjA3SDBWMi41MzlsNi44NzktLjg3M1oiLz48L3N2Zz4=" /></a><a
       href="https://github.com/afkarxyz/Twitter-X-Media-Batch-Downloader/releases/latest"><img
-        src="https://img.shields.io/badge/Windows-10%2B-369eff?labelColor=black&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiB2aWV3Qm94PSIwIDAgMjAgMjAiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGZpbGwtcnVsZT0iZXZlbm9kZCIgZD0iTTIwIDEwLjg3M1YyMEw4LjQ3OSAxOC41MzdsLjAwMS03LjY2NEgyMFptLTEzLjEyIDBsLS4wMDEgNy40NjFMMCAxNy40NjF2LTYuNTg4aDYuODhaTTIwIDkuMjczSDguNDhsLS4wMDEtNy44MUwyMCAwdjkuMjczWk02Ljg3OSAxLjY2NmwuMDAxIDcuNjA3SDBWMi41MzlsNi44NzktLjg3M1oiLz48L3N2Zz4=" /></a><a
+        src="https://img.shields.io/badge/macOS-FFFFFF?labelColor=black&logo=apple&logoColor=white" /></a><a
       href="https://github.com/afkarxyz/Twitter-X-Media-Batch-Downloader/releases/latest"><img
-        src="https://img.shields.io/badge/macOS-10.13%2B-FFFFFF?labelColor=black&logo=apple&logoColor=white" /></a><a
-      href="https://github.com/afkarxyz/Twitter-X-Media-Batch-Downloader/releases/latest"><img
-        src="https://img.shields.io/badge/Linux-Any-FCC624?labelColor=black&logo=linux&logoColor=white" /></a>
+        src="https://img.shields.io/badge/Linux-FCC624?labelColor=black&logo=linux&logoColor=white" /></a>
     <br />
     <br />
     <a href="https://github.com/afkarxyz/Twitter-X-Media-Batch-Downloader/releases/latest" target="_blank"><img
-        src="https://github.com/user-attachments/assets/556bc876-871b-4ac1-af9e-a9001c6b9bbf" alt="Dark"
+        src="https://github.com/user-attachments/assets/e95586cb-35ce-4ef7-a6ce-a5a18ebf3b29" alt="Dark"
         width="49%" /></a>
     <a href="https://github.com/afkarxyz/Twitter-X-Media-Batch-Downloader/releases/latest" target="_blank"><img
-        src="https://github.com/user-attachments/assets/338f11b5-9ddb-4074-8185-aaee13772bdf" alt="Light"
+        src="https://github.com/user-attachments/assets/7581ca58-9e15-4dd9-ae45-14c2b8f3f9d6" alt="Light"
         width="49%" /></a>
   </p>
 </div>

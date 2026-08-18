@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 	"twitterxmediabatchdownloader/backend"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -224,15 +227,49 @@ func (a *App) Quit() {
 	panic("quit")
 }
 
+func (a *App) ExportFailedLogs(content string) (string, error) {
+	if strings.TrimSpace(content) == "" {
+		return "", fmt.Errorf("no failed logs to export")
+	}
+	if a.ctx == nil {
+		return "", fmt.Errorf("application is not ready")
+	}
+
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: fmt.Sprintf("TwitterXMediaBatchDownloader_%s_Failed.txt", time.Now().Format("20060102_150405")),
+		Title:           "Export Failed Logs",
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "Text Files (*.txt)",
+				Pattern:     "*.txt",
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to open save dialog: %v", err)
+	}
+	if path == "" {
+		return "", nil
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("failed to write log file: %v", err)
+	}
+
+	return path, nil
+}
+
 type DownloadMediaRequest struct {
-	URLs                  []string `json:"urls"`
-	OutputDir             string   `json:"output_dir"`
-	Username              string   `json:"username"`
-	ConcurrentDownloads   int      `json:"concurrent_downloads,omitempty"`
-	SkipExisting          bool     `json:"skip_existing"`
-	DeleteIncompleteFiles bool     `json:"delete_incomplete_files"`
-	RetryAttempts         int      `json:"retry_attempts,omitempty"`
-	Proxy                 string   `json:"proxy,omitempty"`
+	URLs                      []string `json:"urls"`
+	OutputDir                 string   `json:"output_dir"`
+	Username                  string   `json:"username"`
+	ConcurrentDownloads       int      `json:"concurrent_downloads,omitempty"`
+	SkipExisting              bool     `json:"skip_existing"`
+	DeleteIncompleteFiles     bool     `json:"delete_incomplete_files"`
+	RetryAttempts             int      `json:"retry_attempts,omitempty"`
+	DownloadSpeedLimitKBps    int      `json:"download_speed_limit_kbps,omitempty"`
+	DownloadDelayMillis       int      `json:"download_delay_ms,omitempty"`
+	DownloadDelayJitterMillis int      `json:"download_delay_jitter_ms,omitempty"`
+	Proxy                     string   `json:"proxy,omitempty"`
 }
 
 type MediaItemRequest struct {
@@ -247,19 +284,22 @@ type MediaItemRequest struct {
 }
 
 type DownloadMediaWithMetadataRequest struct {
-	Items                 []MediaItemRequest `json:"items"`
-	OutputDir             string             `json:"output_dir"`
-	Username              string             `json:"username"`
-	ConcurrentDownloads   int                `json:"concurrent_downloads,omitempty"`
-	SkipExisting          bool               `json:"skip_existing"`
-	DeleteIncompleteFiles bool               `json:"delete_incomplete_files"`
-	RetryAttempts         int                `json:"retry_attempts,omitempty"`
-	Proxy                 string             `json:"proxy,omitempty"`
-	FilenameTemplate      string             `json:"filename_template,omitempty"`
-	FolderTemplate        string             `json:"folder_template,omitempty"`
-	AutoConvertGIFs       bool               `json:"auto_convert_gifs,omitempty"`
-	GIFQuality            string             `json:"gif_quality,omitempty"`
-	GIFResolution         string             `json:"gif_resolution,omitempty"`
+	Items                     []MediaItemRequest `json:"items"`
+	OutputDir                 string             `json:"output_dir"`
+	Username                  string             `json:"username"`
+	ConcurrentDownloads       int                `json:"concurrent_downloads,omitempty"`
+	SkipExisting              bool               `json:"skip_existing"`
+	DeleteIncompleteFiles     bool               `json:"delete_incomplete_files"`
+	RetryAttempts             int                `json:"retry_attempts,omitempty"`
+	DownloadSpeedLimitKBps    int                `json:"download_speed_limit_kbps,omitempty"`
+	DownloadDelayMillis       int                `json:"download_delay_ms,omitempty"`
+	DownloadDelayJitterMillis int                `json:"download_delay_jitter_ms,omitempty"`
+	Proxy                     string             `json:"proxy,omitempty"`
+	FilenameTemplate          string             `json:"filename_template,omitempty"`
+	FolderTemplate            string             `json:"folder_template,omitempty"`
+	AutoConvertGIFs           bool               `json:"auto_convert_gifs,omitempty"`
+	GIFQuality                string             `json:"gif_quality,omitempty"`
+	GIFResolution             string             `json:"gif_resolution,omitempty"`
 }
 
 type DownloadMediaResponse struct {
@@ -290,10 +330,13 @@ func (a *App) DownloadMedia(req DownloadMediaRequest) (DownloadMediaResponse, er
 	}
 
 	options := backend.DownloadOptions{
-		ConcurrentDownloads:   req.ConcurrentDownloads,
-		SkipExistingFiles:     req.SkipExisting,
-		DeleteIncompleteFiles: req.DeleteIncompleteFiles,
-		RetryAttempts:         req.RetryAttempts,
+		ConcurrentDownloads:       req.ConcurrentDownloads,
+		SkipExistingFiles:         req.SkipExisting,
+		DeleteIncompleteFiles:     req.DeleteIncompleteFiles,
+		RetryAttempts:             req.RetryAttempts,
+		DownloadSpeedLimitKBps:    req.DownloadSpeedLimitKBps,
+		DownloadDelayMillis:       req.DownloadDelayMillis,
+		DownloadDelayJitterMillis: req.DownloadDelayJitterMillis,
 	}
 
 	downloaded, failed, err := backend.DownloadMediaFiles(req.URLs, outputDir, options, req.Proxy)
@@ -401,15 +444,18 @@ func (a *App) DownloadMediaWithMetadata(req DownloadMediaWithMetadataRequest) (D
 	}
 
 	options := backend.DownloadOptions{
-		ConcurrentDownloads:   req.ConcurrentDownloads,
-		SkipExistingFiles:     req.SkipExisting,
-		DeleteIncompleteFiles: req.DeleteIncompleteFiles,
-		RetryAttempts:         req.RetryAttempts,
-		FilenameTemplate:      req.FilenameTemplate,
-		FolderTemplate:        req.FolderTemplate,
-		AutoConvertGIFs:       req.AutoConvertGIFs,
-		GIFQuality:            req.GIFQuality,
-		GIFResolution:         req.GIFResolution,
+		ConcurrentDownloads:       req.ConcurrentDownloads,
+		SkipExistingFiles:         req.SkipExisting,
+		DeleteIncompleteFiles:     req.DeleteIncompleteFiles,
+		RetryAttempts:             req.RetryAttempts,
+		DownloadSpeedLimitKBps:    req.DownloadSpeedLimitKBps,
+		DownloadDelayMillis:       req.DownloadDelayMillis,
+		DownloadDelayJitterMillis: req.DownloadDelayJitterMillis,
+		FilenameTemplate:          req.FilenameTemplate,
+		FolderTemplate:            req.FolderTemplate,
+		AutoConvertGIFs:           req.AutoConvertGIFs,
+		GIFQuality:                req.GIFQuality,
+		GIFResolution:             req.GIFResolution,
 	}
 
 	downloaded, skipped, failed, err := backend.DownloadMediaWithMetadataProgressAndStatus(

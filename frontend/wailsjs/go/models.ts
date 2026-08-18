@@ -139,6 +139,9 @@ export namespace main {
 	    skip_existing: boolean;
 	    delete_incomplete_files: boolean;
 	    retry_attempts?: number;
+	    download_speed_limit_kbps?: number;
+	    download_delay_ms?: number;
+	    download_delay_jitter_ms?: number;
 	    proxy?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -154,6 +157,9 @@ export namespace main {
 	        this.skip_existing = source["skip_existing"];
 	        this.delete_incomplete_files = source["delete_incomplete_files"];
 	        this.retry_attempts = source["retry_attempts"];
+	        this.download_speed_limit_kbps = source["download_speed_limit_kbps"];
+	        this.download_delay_ms = source["download_delay_ms"];
+	        this.download_delay_jitter_ms = source["download_delay_jitter_ms"];
 	        this.proxy = source["proxy"];
 	    }
 	}
@@ -213,6 +219,9 @@ export namespace main {
 	    skip_existing: boolean;
 	    delete_incomplete_files: boolean;
 	    retry_attempts?: number;
+	    download_speed_limit_kbps?: number;
+	    download_delay_ms?: number;
+	    download_delay_jitter_ms?: number;
 	    proxy?: string;
 	    filename_template?: string;
 	    folder_template?: string;
@@ -233,6 +242,9 @@ export namespace main {
 	        this.skip_existing = source["skip_existing"];
 	        this.delete_incomplete_files = source["delete_incomplete_files"];
 	        this.retry_attempts = source["retry_attempts"];
+	        this.download_speed_limit_kbps = source["download_speed_limit_kbps"];
+	        this.download_delay_ms = source["download_delay_ms"];
+	        this.download_delay_jitter_ms = source["download_delay_jitter_ms"];
 	        this.proxy = source["proxy"];
 	        this.filename_template = source["filename_template"];
 	        this.folder_template = source["folder_template"];

@@ -90,6 +90,7 @@ export function DatabaseView({ onLoadAccount, onUpdateSelected }: DatabaseViewPr
         localStorage.setItem("savedAccountsViewMode", gridView);
     }, [gridView]);
     const [editingAccount, setEditingAccount] = useState<AccountListItem | null>(null);
+    const [isBulkGroupEditing, setIsBulkGroupEditing] = useState(false);
     const [editGroupName, setEditGroupName] = useState("");
     const [editGroupColor, setEditGroupColor] = useState("");
     const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false);
@@ -277,18 +278,53 @@ export function DatabaseView({ onLoadAccount, onUpdateSelected }: DatabaseViewPr
         };
     }, [filteredAccounts.length, visibleCount, loading]);
     const handleEditGroup = (account: AccountListItem) => {
+        setIsBulkGroupEditing(false);
         setEditingAccount(account);
         setEditGroupName(account.group_name || "");
         setEditGroupColor(account.group_color || "#3b82f6");
     };
+    const closeGroupEditor = () => {
+        setEditingAccount(null);
+        setIsBulkGroupEditing(false);
+    };
+    const handleBulkEditGroup = () => {
+        const selectedAccounts = accounts.filter((account) => selectedIds.has(account.id) && !isPrivateAccount(account.username));
+        if (selectedAccounts.length === 0) {
+            toast.error("No public accounts selected");
+            return;
+        }
+        const firstAccount = selectedAccounts[0];
+        const hasSharedGroup = selectedAccounts.every((account) => account.group_name === firstAccount.group_name && account.group_color === firstAccount.group_color);
+        setEditingAccount(null);
+        setEditGroupName(hasSharedGroup ? firstAccount.group_name || "" : "");
+        setEditGroupColor(hasSharedGroup ? firstAccount.group_color || "#3b82f6" : "#3b82f6");
+        setIsBulkGroupEditing(true);
+    };
     const handleSaveGroup = async () => {
-        if (!editingAccount)
+        const targetAccounts = isBulkGroupEditing
+            ? accounts.filter((account) => selectedIds.has(account.id) && !isPrivateAccount(account.username))
+            : editingAccount ? [editingAccount] : [];
+        if (targetAccounts.length === 0)
             return;
         try {
-            await UpdateAccountGroup(editingAccount.id, editGroupName, editGroupColor);
-            toast.success(`Updated group for @${editingAccount.username}`);
-            setEditingAccount(null);
-            await loadAccounts();
+            for (const account of targetAccounts) {
+                await UpdateAccountGroup(account.id, editGroupName, editGroupColor);
+            }
+            const targetIds = new Set(targetAccounts.map((account) => account.id));
+            setAccounts((currentAccounts) => currentAccounts.map((account) => targetIds.has(account.id)
+                ? { ...account, group_name: editGroupName, group_color: editGroupColor }
+                : account));
+            toast.success(isBulkGroupEditing
+                ? `Updated group for ${formatNumberWithComma(targetAccounts.length)} accounts`
+                : `Updated group for @${targetAccounts[0].username}`);
+            closeGroupEditor();
+            try {
+                const groupsData = await GetAllGroups();
+                setGroups((groupsData || []).map((group) => ({ name: group.name || "", color: group.color || "" })));
+            }
+            catch (error) {
+                console.error("Failed to refresh groups:", error);
+            }
         }
         catch (error) {
             console.error("Failed to update group:", error);
@@ -388,6 +424,9 @@ export function DatabaseView({ onLoadAccount, onUpdateSelected }: DatabaseViewPr
                 skip_existing: settings.skipExistingFiles,
                 delete_incomplete_files: settings.deleteIncompleteFiles,
                 retry_attempts: settings.retryAttempts,
+                download_speed_limit_kbps: settings.downloadSpeedLimitKBps,
+                download_delay_ms: Math.round(settings.downloadDelaySeconds * 1000),
+                download_delay_jitter_ms: Math.round(settings.downloadDelayJitterSeconds * 1000),
                 proxy: settings.proxy || "",
                 filename_template: settings.filenameTemplate || "",
                 folder_template: settings.folderTemplate || "",
@@ -513,6 +552,9 @@ export function DatabaseView({ onLoadAccount, onUpdateSelected }: DatabaseViewPr
                     skip_existing: settings.skipExistingFiles,
                     delete_incomplete_files: settings.deleteIncompleteFiles,
                     retry_attempts: settings.retryAttempts,
+                    download_speed_limit_kbps: settings.downloadSpeedLimitKBps,
+                    download_delay_ms: Math.round(settings.downloadDelaySeconds * 1000),
+                    download_delay_jitter_ms: Math.round(settings.downloadDelayJitterSeconds * 1000),
                     proxy: settings.proxy || "",
                     filename_template: settings.filenameTemplate || "",
                     folder_template: settings.folderTemplate || "",
@@ -797,6 +839,14 @@ export function DatabaseView({ onLoadAccount, onUpdateSelected }: DatabaseViewPr
           </DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
+              <Button variant="outline" size="icon" onClick={handleBulkEditGroup} disabled={selectedIds.size === 0 || hasPrivateAccountSelected()}>
+                <Tag className="h-4 w-4"/>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Edit Group for Selected ({formatNumberWithComma(selectedIds.size)})</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
               <Button variant="outline" size="icon" onClick={() => {
             const idsToUpdate = selectedIds.size > 0 ? Array.from(selectedIds) : accounts.map((a) => a.id);
             if (idsToUpdate.length === 0) {
@@ -1028,7 +1078,7 @@ export function DatabaseView({ onLoadAccount, onUpdateSelected }: DatabaseViewPr
                     .slice(0, visibleCount)
                     .map((account, index) => (<div key={account.id} onClick={() => handleView(account.id, account.username)} className={`relative rounded-lg border transition-colors p-4 cursor-pointer ${selectedIds.has(account.id) ? "border-primary bg-primary/5" : "bg-card hover:bg-muted/50"}`}>
 
-                  <Checkbox checked={selectedIds.has(account.id)} onCheckedChange={() => toggleSelect(account.id)} onClick={(e) => e.stopPropagation()} className="absolute top-2 left-2 z-10"/>
+                  <Checkbox checked={selectedIds.has(account.id)} onCheckedChange={() => toggleSelect(account.id)} onClick={(e) => e.stopPropagation()} className="absolute top-2 left-2 z-10 size-5 cursor-pointer after:absolute after:-inset-2 after:content-['']" aria-label={`Select @${account.username}`}/>
                   
                   <div className="absolute top-2 right-2 z-10 flex gap-1">
                     <Badge variant="secondary" className={cn("text-xs flex items-center gap-1", account.media_type === "text" && "bg-orange-500/20 text-orange-600 dark:text-orange-400", account.media_type === "image" && "bg-blue-500/20 text-blue-600 dark:text-blue-400", account.media_type === "video" && "bg-purple-500/20 text-purple-600 dark:text-purple-400", account.media_type === "gif" && "bg-green-500/20 text-green-600 dark:text-green-400", (!account.media_type || account.media_type === "all") && "bg-indigo-500/20 text-indigo-600 dark:text-indigo-400")}>
@@ -1125,7 +1175,7 @@ export function DatabaseView({ onLoadAccount, onUpdateSelected }: DatabaseViewPr
                     .slice(0, visibleCount)
                     .map((account, index) => (<div key={account.id} onClick={() => handleView(account.id, account.username)} className={`relative rounded-lg border transition-colors p-3 cursor-pointer ${selectedIds.has(account.id) ? "border-primary bg-primary/5" : "bg-card hover:bg-muted/50"}`}>
 
-                  <Checkbox checked={selectedIds.has(account.id)} onCheckedChange={() => toggleSelect(account.id)} onClick={(e) => e.stopPropagation()} className="absolute top-1.5 left-1.5 z-10"/>
+                  <Checkbox checked={selectedIds.has(account.id)} onCheckedChange={() => toggleSelect(account.id)} onClick={(e) => e.stopPropagation()} className="absolute top-1.5 left-1.5 z-10 size-5 cursor-pointer after:absolute after:-inset-2 after:content-['']" aria-label={`Select @${account.username}`}/>
                   
                   <div className="absolute top-1.5 right-1.5 z-10 flex gap-1">
                     <Badge variant="secondary" className={cn("text-xs p-1", account.media_type === "text" && "bg-orange-500/20 text-orange-600 dark:text-orange-400", account.media_type === "image" && "bg-blue-500/20 text-blue-600 dark:text-blue-400", account.media_type === "video" && "bg-purple-500/20 text-purple-600 dark:text-purple-400", account.media_type === "gif" && "bg-green-500/20 text-green-600 dark:text-green-400", (!account.media_type || account.media_type === "all") && "bg-indigo-500/20 text-indigo-600 dark:text-indigo-400")}>
@@ -1221,7 +1271,7 @@ export function DatabaseView({ onLoadAccount, onUpdateSelected }: DatabaseViewPr
                 .slice(0, visibleCount)
                 .map((account, index) => (<div key={account.id} className={`rounded-lg border transition-colors ${selectedIds.has(account.id) ? "border-primary bg-primary/5" : "bg-card hover:bg-muted/50"}`}>
               <div className="flex items-center gap-4 p-4 cursor-pointer" onClick={() => handleView(account.id, account.username)}>
-                <Checkbox checked={selectedIds.has(account.id)} onCheckedChange={() => toggleSelect(account.id)} onClick={(e) => e.stopPropagation()}/>
+                <Checkbox checked={selectedIds.has(account.id)} onCheckedChange={() => toggleSelect(account.id)} onClick={(e) => e.stopPropagation()} className="relative size-5 cursor-pointer after:absolute after:-inset-2 after:content-['']" aria-label={`Select @${account.username}`}/>
                 <div className="relative shrink-0">
                   <span className="absolute -top-1.5 -left-1.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium text-primary-foreground">
                     {index + 1}
@@ -1387,17 +1437,19 @@ export function DatabaseView({ onLoadAccount, onUpdateSelected }: DatabaseViewPr
         </Button>)}
 
       
-      <Dialog open={!!editingAccount} onOpenChange={(open) => !open && setEditingAccount(null)}>
+      <Dialog open={isBulkGroupEditing || !!editingAccount} onOpenChange={(open) => !open && closeGroupEditor()}>
         <DialogContent className="[&>button]:hidden">
           <div className="absolute right-4 top-4">
-            <Button variant="ghost" size="icon" className="h-6 w-6 opacity-70 hover:opacity-100" onClick={() => setEditingAccount(null)}>
+            <Button variant="ghost" size="icon" className="h-6 w-6 opacity-70 hover:opacity-100" onClick={closeGroupEditor}>
               <X className="h-4 w-4"/>
             </Button>
           </div>
           <DialogHeader>
-            <DialogTitle>Edit Group for @{editingAccount?.username}</DialogTitle>
+            <DialogTitle>{isBulkGroupEditing
+            ? `Edit Group for ${formatNumberWithComma(selectedIds.size)} Selected Accounts`
+            : `Edit Group for @${editingAccount?.username}`}</DialogTitle>
             <DialogDescription>
-              Assign this account to a group for better organization.
+              Assign {isBulkGroupEditing ? "these accounts" : "this account"} to a group for better organization.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1459,7 +1511,7 @@ export function DatabaseView({ onLoadAccount, onUpdateSelected }: DatabaseViewPr
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingAccount(null)}>
+            <Button variant="outline" onClick={closeGroupEditor}>
               Cancel
             </Button>
             <Button onClick={handleSaveGroup}>

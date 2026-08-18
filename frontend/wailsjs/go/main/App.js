@@ -70,6 +70,10 @@ export function ExportAccountsTXT(arg1, arg2) {
   return window['go']['main']['App']['ExportAccountsTXT'](arg1, arg2);
 }
 
+export function ExportFailedLogs(arg1) {
+  return window['go']['main']['App']['ExportFailedLogs'](arg1);
+}
+
 export function ExtractDateRange(arg1) {
   return window['go']['main']['App']['ExtractDateRange'](arg1);
 }

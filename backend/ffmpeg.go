@@ -18,9 +18,11 @@ import (
 )
 
 const (
-	ffmpegReleaseAPIURL         = "https://api.github.com/repos/spotbye/Dependencies/releases/tags/FFmpeg-8.1"
-	ffmpegLatestReleaseURL      = "https://github.com/spotbye/Dependencies/releases/tag/FFmpeg-8.1"
-	ffmpegLatestDownloadBaseURL = "https://github.com/spotbye/Dependencies/releases/download/FFmpeg-8.1"
+	ffmpegReleasesAPIURL          = "https://api.github.com/repos/spotbye/Dependencies/releases?per_page=100"
+	ffmpegReleaseTagPrefix        = "FFmpeg-"
+	ffmpegFallbackReleaseTag      = "FFmpeg-9.0"
+	ffmpegFallbackReleaseURL      = "https://github.com/spotbye/Dependencies/releases/tag/" + ffmpegFallbackReleaseTag
+	ffmpegFallbackDownloadBaseURL = "https://github.com/spotbye/Dependencies/releases/download/" + ffmpegFallbackReleaseTag
 )
 
 var ffmpegVersionPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)+`)
@@ -206,7 +208,7 @@ func fetchLatestFFmpegRelease() (*githubRelease, error) {
 		return nil, fmt.Errorf("failed to configure ffmpeg network client: %v", err)
 	}
 
-	req, err := newFFmpegGitHubRequest(ffmpegReleaseAPIURL)
+	req, err := newFFmpegGitHubRequest(ffmpegReleasesAPIURL)
 	if err != nil {
 		return nil, err
 	}
@@ -221,12 +223,26 @@ func fetchLatestFFmpegRelease() (*githubRelease, error) {
 		return nil, fmt.Errorf("failed to fetch ffmpeg release info: status %d", resp.StatusCode)
 	}
 
-	var release githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	var releases []githubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return nil, fmt.Errorf("failed to decode ffmpeg release info: %v", err)
 	}
 
-	return &release, nil
+	return findLatestStableFFmpegRelease(releases)
+}
+
+func findLatestStableFFmpegRelease(releases []githubRelease) (*githubRelease, error) {
+	for index := range releases {
+		release := &releases[index]
+		if release.Draft || release.Prerelease || !strings.HasPrefix(strings.ToLower(release.TagName), strings.ToLower(ffmpegReleaseTagPrefix)) {
+			continue
+		}
+		if normalizeFFmpegVersion(release.TagName) != "" {
+			return release, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no stable ffmpeg release found")
 }
 
 func newFFmpegGitHubRequest(url string) (*http.Request, error) {
@@ -260,7 +276,7 @@ func fetchLatestFFmpegVersionFromRedirect() (string, error) {
 		return http.ErrUseLastResponse
 	}
 
-	req, err := http.NewRequest(http.MethodGet, ffmpegLatestReleaseURL, nil)
+	req, err := http.NewRequest(http.MethodGet, ffmpegFallbackReleaseURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create ffmpeg redirect request: %v", err)
 	}
@@ -302,7 +318,7 @@ func parseFFmpegVersionFromReleaseURL(releaseURL string) string {
 }
 
 func buildLatestFFmpegDownloadURL(assetName string) string {
-	return ffmpegLatestDownloadBaseURL + "/" + assetName
+	return ffmpegFallbackDownloadBaseURL + "/" + assetName
 }
 
 func downloadFFmpegArchive(downloadURL string, destination *os.File, progressCallback func(downloaded, total int64)) error {
@@ -497,6 +513,9 @@ func normalizeFFmpegVersion(version string) string {
 	lowerVersion := strings.ToLower(version)
 	if strings.HasPrefix(lowerVersion, "ffmpeg version ") {
 		version = strings.TrimSpace(version[len("ffmpeg version "):])
+	}
+	if strings.HasPrefix(strings.ToLower(version), strings.ToLower(ffmpegReleaseTagPrefix)) {
+		version = version[len(ffmpegReleaseTagPrefix):]
 	}
 
 	fields := strings.Fields(version)

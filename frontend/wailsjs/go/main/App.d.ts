@@ -37,6 +37,8 @@ export function ExportAccountJSON(arg1:number,arg2:string):Promise<string>;
 
 export function ExportAccountsTXT(arg1:Array<number>,arg2:string):Promise<string>;
 
+export function ExportFailedLogs(arg1:string):Promise<string>;
+
 export function ExtractDateRange(arg1:main.DateRangeRequest):Promise<string>;
 
 export function ExtractTimeline(arg1:main.TimelineRequest):Promise<string>;

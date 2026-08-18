@@ -1,4 +1,4 @@
-import { X, Minus, Maximize, Info, Puzzle, FileCode2, Globe } from "lucide-react";
+import { X, Minus, Maximize, Sparkles, Puzzle, FileCode2, Globe, ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
 import { WindowMinimise, WindowToggleMaximise, Quit } from "../../wailsjs/runtime/runtime";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { openExternal } from "@/lib/utils";
@@ -7,7 +7,14 @@ const INFO_LINKS = [
     { label: "Userscript", icon: FileCode2, url: "https://greasyfork.org/en/scripts/523157" },
     { label: "Website", icon: Globe, url: "https://twitterdl.app" },
 ];
-export function TitleBar() {
+interface TitleBarProps {
+    canGoBack?: boolean;
+    canGoForward?: boolean;
+    navigationDisabled?: boolean;
+    onBack?: () => void;
+    onForward?: () => void;
+}
+export function TitleBar({ canGoBack = false, canGoForward = false, navigationDisabled = false, onBack, onForward }: TitleBarProps) {
     const handleMinimize = () => {
         WindowMinimise();
     };
@@ -21,12 +28,18 @@ export function TitleBar() {
 
       <div className="fixed top-0 left-14 right-0 h-10 z-40 bg-background/80 backdrop-blur-sm" style={{ "--wails-draggable": "drag" } as React.CSSProperties} onDoubleClick={handleMaximize}/>
 
+      <div className="fixed top-1.5 left-16 z-50 flex h-7 items-center gap-0.5" style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}>
+        <button type="button" onClick={onBack} disabled={!canGoBack || navigationDisabled} className="flex size-7 items-center justify-center rounded transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent" aria-label="Go back"><ArrowLeft className="h-3.5 w-3.5"/></button>
+        <button type="button" onClick={onForward} disabled={!canGoForward || navigationDisabled} className="flex size-7 items-center justify-center rounded transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent" aria-label="Go forward"><ArrowRight className="h-3.5 w-3.5"/></button>
+        <button type="button" onClick={() => window.location.reload()} className="flex size-7 items-center justify-center rounded transition-colors hover:bg-muted" aria-label="Reload"><RotateCw className="h-3.5 w-3.5"/></button>
+      </div>
+
 
       <div className="fixed top-1.5 right-2 z-50 flex h-7 gap-0.5" style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="w-8 h-7 flex items-center justify-center hover:bg-muted transition-colors rounded" aria-label="Info">
-              <Info className="w-3.5 h-3.5"/>
+            <button className="size-7 flex items-center justify-center hover:bg-muted transition-colors rounded" aria-label="Info">
+              <Sparkles className="h-3.5 w-3.5 text-primary"/>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -36,13 +49,13 @@ export function TitleBar() {
             </DropdownMenuItem>))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <button onClick={handleMinimize} className="w-8 h-7 flex items-center justify-center hover:bg-muted transition-colors rounded" aria-label="Minimize">
+        <button onClick={handleMinimize} className="size-7 flex items-center justify-center hover:bg-muted transition-colors rounded" aria-label="Minimize">
           <Minus className="w-3.5 h-3.5"/>
         </button>
-        <button onClick={handleMaximize} className="w-8 h-7 flex items-center justify-center hover:bg-muted transition-colors rounded" aria-label="Maximize">
+        <button onClick={handleMaximize} className="size-7 flex items-center justify-center hover:bg-muted transition-colors rounded" aria-label="Maximize">
           <Maximize className="w-3.5 h-3.5"/>
         </button>
-        <button onClick={handleClose} className="w-8 h-7 flex items-center justify-center hover:bg-destructive hover:text-white transition-colors rounded" aria-label="Close">
+        <button onClick={handleClose} className="size-7 flex items-center justify-center hover:bg-destructive hover:text-white transition-colors rounded" aria-label="Close">
           <X className="w-3.5 h-3.5"/>
         </button>
       </div>

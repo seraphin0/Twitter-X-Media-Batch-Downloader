@@ -2,9 +2,6 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CircleCheck, Copy } from "lucide-react";
-import { openExternal } from "@/lib/utils";
-import KofiLogo from "@/assets/ko-fi.gif";
-import KofiSvg from "@/assets/kofi_symbol.svg";
 import UsdtTronQr from "@/assets/usdt.jpg";
 import UsdtEvmQr from "@/assets/usdt_evm.jpg";
 import UsdcEvmQr from "@/assets/usdc.jpg";
@@ -49,34 +46,16 @@ export function SupportPage() {
             setSelectedNetwork("ethereum");
         }
     };
-    return (<div className="flex min-h-[70vh] items-center justify-center p-4">
-      <div className="flex w-full max-w-3xl flex-col items-stretch rounded-xl border bg-card shadow-sm md:flex-row">
-        <div className="flex min-w-0 flex-1 basis-0 flex-col items-center justify-between space-y-6 border-b p-6 md:border-r md:border-b-0">
-            <div className="flex flex-col items-center space-y-4">
-              <div className="relative flex h-32 w-full items-center justify-center">
-                <img src={KofiLogo} className="pointer-events-none absolute w-72" alt="Ko-fi"/>
-              </div>
-              <h4 className="font-semibold text-foreground">Support via Ko-fi</h4>
-              <p className="px-4 text-center text-sm text-muted-foreground">
-                Enjoying the project? You can support ongoing development by buying me a coffee.
-              </p>
-            </div>
-            <Button className="h-9 w-4/5 gap-2 bg-[#72a4f2] text-sm font-semibold text-white hover:bg-[#5f8cd6]" onClick={() => openExternal("https://ko-fi.com/afkarxyz")}>
-              <img src={KofiSvg} className="h-6 w-6 shrink-0" alt="" aria-hidden="true"/>
-              Support me on Ko-fi
-            </Button>
-          </div>
-
-          <div className="flex min-w-0 flex-1 basis-0 flex-col items-center justify-between space-y-4 p-6">
+    return (<div className="mx-auto flex min-h-[70vh] w-full max-w-lg flex-col items-center justify-center space-y-4 p-6">
             <div className="flex w-full flex-col items-center space-y-3">
-              <div className="flex h-32 items-center justify-center">
+              <div className="flex h-40 items-center justify-center">
                 <div className="rounded-xl border bg-white p-2 shadow-sm">
-                  <img src={cryptoQr} className="h-24 w-24 object-contain" alt={`${selectedCoin.toUpperCase()} ${activeNetwork.label} QR code`}/>
+                  <img src={cryptoQr} className="h-32 w-32 object-contain" alt={`${selectedCoin.toUpperCase()} ${activeNetwork.label} QR code`}/>
                 </div>
               </div>
               <h4 className="font-semibold text-foreground">Support via Crypto</h4>
               <p className="px-4 text-center text-sm text-muted-foreground">
-                Crypto donations are also accepted. Scan the QR code or copy the address.
+                Scan the QR code or copy the address to support the project.
               </p>
             </div>
             <div className="w-full space-y-2">
@@ -115,7 +94,5 @@ export function SupportPage() {
                 </Button>
               </div>
             </div>
-          </div>
-      </div>
     </div>);
 }

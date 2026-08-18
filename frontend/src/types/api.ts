@@ -82,7 +82,9 @@ export interface DateRangeRequest {
 }
 export interface Settings {
     downloadPath: string;
+    baseColor: string;
     theme: string;
     themeMode: "auto" | "light" | "dark";
     sfxEnabled: boolean;
+    showUpdateNotifications: boolean;
 }

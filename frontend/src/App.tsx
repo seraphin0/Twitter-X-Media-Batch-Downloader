@@ -2,11 +2,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "lucide-react";
 import { getSettings, applyThemeMode, applyFont } from "@/lib/settings";
 import { applyTheme } from "@/lib/themes";
 import { openExternal } from "@/lib/utils";
-import { compareVersionNumbers } from "@/lib/version";
+import { isNewerVersion } from "@/lib/version";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { logger } from "@/lib/logger";
 import { initDownloadProgressEvents } from "@/lib/download-state";
@@ -14,6 +13,8 @@ import { saveFetchState, getFetchState, clearFetchState, getResumableInfo, merge
 import { TitleBar } from "@/components/TitleBar";
 import { Sidebar, type PageType } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { MarkdownLite } from "@/components/MarkdownLite";
+import { extractMarkdownSection } from "@/lib/markdown";
 import { SearchBar, type FetchMode, type PrivateType, type FetchType, type MultipleAccount } from "@/components/SearchBar";
 import { MediaList } from "@/components/MediaList";
 import { DatabaseView } from "@/components/DatabaseView";
@@ -57,6 +58,12 @@ function App() {
     const [fetchedMediaType, setFetchedMediaType] = useState<string>("all");
     const [hasUpdate, setHasUpdate] = useState(false);
     const [releaseDate, setReleaseDate] = useState<string | null>(null);
+    const [updateInfo, setUpdateInfo] = useState<{
+        version: string;
+        changelog: string;
+        url: string;
+    } | null>(null);
+    const [showUpdateDialog, setShowUpdateDialog] = useState(false);
     const [fetchHistory, setFetchHistory] = useState<HistoryItem[]>([]);
     const [resumeInfo, setResumeInfo] = useState<{
         canResume: boolean;
@@ -69,6 +76,7 @@ function App() {
     const fetchStartTimeRef = useRef<number | null>(null);
     const timeoutIntervalRef = useRef<number | null>(null);
     const [fetchType, setFetchType] = useState<FetchType>("single");
+    const [isResultViewActive, setIsResultViewActive] = useState(false);
     const [multipleAccounts, setMultipleAccounts] = useState<MultipleAccount[]>([]);
     const [isFetchingAll, setIsFetchingAll] = useState(false);
     const [searchMode, setSearchMode] = useState<FetchMode>("public");
@@ -84,6 +92,9 @@ function App() {
     const accountMediaCountRef = useRef<Map<string, number>>(new Map());
     const accountTimeoutSecondsRef = useRef<Map<string, number>>(new Map());
     const dbSaveWarningShownRef = useRef(false);
+    useEffect(() => {
+        setIsResultViewActive(result !== null && fetchType === "single");
+    }, [result, fetchType]);
     const reportDatabaseSaveError = (scope: string, error: unknown) => {
         console.error(`Failed to save ${scope} to database:`, error);
         if (!dbSaveWarningShownRef.current) {
@@ -155,14 +166,14 @@ function App() {
     useEffect(() => {
         const settings = getSettings();
         applyThemeMode(settings.themeMode);
-        applyTheme(settings.theme);
+        applyTheme(settings.theme, settings.baseColor);
         applyFont(settings.fontFamily, settings.customFonts);
         const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
         const handleChange = () => {
             const currentSettings = getSettings();
             if (currentSettings.themeMode === "auto") {
                 applyThemeMode("auto");
-                applyTheme(currentSettings.theme);
+                applyTheme(currentSettings.theme, currentSettings.baseColor);
             }
         };
         mediaQuery.addEventListener("change", handleChange);
@@ -210,13 +221,27 @@ function App() {
     const checkForUpdates = async () => {
         try {
             const response = await fetch("https://api.github.com/repos/afkarxyz/Twitter-X-Media-Batch-Downloader/releases/latest");
+            if (!response.ok) {
+                throw new Error(`GitHub release request failed: ${response.status}`);
+            }
             const data = await response.json();
-            const latestVersion = data.tag_name?.replace(/^v/, "") || "";
+            const rawTag = typeof data.tag_name === "string" ? data.tag_name : "";
+            const latestVersion = rawTag.replace(/^v/, "");
             if (data.published_at) {
                 setReleaseDate(data.published_at);
             }
-            if (latestVersion && compareVersionNumbers(latestVersion, CURRENT_VERSION) > 0) {
+            if (latestVersion && isNewerVersion(latestVersion, CURRENT_VERSION)) {
                 setHasUpdate(true);
+                setUpdateInfo({
+                    version: latestVersion,
+                    changelog: extractMarkdownSection(typeof data.body === "string" ? data.body : "", "Changelog"),
+                    url: typeof data.html_url === "string" && data.html_url
+                        ? data.html_url
+                        : `https://github.com/afkarxyz/Twitter-X-Media-Batch-Downloader/releases/tag/${encodeURIComponent(rawTag)}`,
+                });
+                if (getSettings().showUpdateNotifications) {
+                    setShowUpdateDialog(true);
+                }
             }
         }
         catch (err) {
@@ -714,12 +739,19 @@ function App() {
             toast.error("Failed to parse saved data");
         }
     };
-    const handleBackToHomeResult = () => {
-        setCurrentPage("main");
-        setResult(null);
-        setNewMediaCount(null);
+    const scrollContentToTop = () => {
         const scrollElement = document.getElementById("app-content-scroll");
         scrollElement?.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const handleResultBack = () => {
+        setIsResultViewActive(false);
+        scrollContentToTop();
+    };
+    const handleResultForward = () => {
+        if (result && fetchType === "single") {
+            setIsResultViewActive(true);
+            scrollContentToTop();
+        }
     };
     const parseUsername = (input: string): string => {
         let clean = input.trim();
@@ -1156,7 +1188,7 @@ function App() {
         }
         const savedSettings = getSettings();
         applyThemeMode(savedSettings.themeMode);
-        applyTheme(savedSettings.theme);
+        applyTheme(savedSettings.theme, savedSettings.baseColor);
         applyFont(savedSettings.fontFamily, savedSettings.customFonts);
         setHasUnsavedSettings(false);
         if (pendingPageChange) {
@@ -1474,6 +1506,7 @@ function App() {
         }
     };
     const renderPage = () => {
+        const showSingleResult = isResultViewActive && result !== null && fetchType === "single";
         switch (currentPage) {
             case "settings":
                 return <SettingsPage onUnsavedChangesChange={setHasUnsavedSettings} onResetRequest={setResetSettingsFn}/>;
@@ -1487,32 +1520,27 @@ function App() {
                 return (<>
             <Header version={CURRENT_VERSION} hasUpdate={hasUpdate} releaseDate={releaseDate}/>
 
-            <SearchBar username={username} loading={loading} onUsernameChange={setUsername} onFetch={handleFetch} onStopFetch={handleStopFetch} onResume={handleResume} onClearResume={handleClearResume} resumeInfo={resumeInfo} history={fetchHistory} onHistorySelect={handleHistorySelect} onHistoryRemove={removeFromHistory} hasResult={!!result} elapsedTime={elapsedTime} remainingTime={remainingTime} fetchType={fetchType} onFetchTypeChange={handleFetchTypeChange} multipleAccounts={multipleAccounts} onImportAccounts={handleImportAccounts} onFetchAll={handleFetchAll} onStopAll={handleStopAll} onStopAccount={handleStopAccount} onRetryAccount={handleRetryAccount} onClearMultipleAccounts={handleClearMultipleAccounts} onRemoveMultipleAccount={handleRemoveMultipleAccount} onOpenSavedAccounts={() => setCurrentPage("database")} isFetchingAll={isFetchingAll} mode={searchMode} privateType={searchPrivateType} onModeChange={(mode, privateType) => {
+            <SearchBar username={username} loading={loading} onUsernameChange={setUsername} onFetch={handleFetch} onStopFetch={handleStopFetch} onResume={handleResume} onClearResume={handleClearResume} resumeInfo={resumeInfo} history={fetchHistory} onHistorySelect={handleHistorySelect} onHistoryRemove={removeFromHistory} hasResult={showSingleResult} elapsedTime={elapsedTime} remainingTime={remainingTime} fetchType={fetchType} onFetchTypeChange={handleFetchTypeChange} multipleAccounts={multipleAccounts} onImportAccounts={handleImportAccounts} onFetchAll={handleFetchAll} onStopAll={handleStopAll} onStopAccount={handleStopAccount} onRetryAccount={handleRetryAccount} onClearMultipleAccounts={handleClearMultipleAccounts} onRemoveMultipleAccount={handleRemoveMultipleAccount} onOpenSavedAccounts={() => setCurrentPage("database")} isFetchingAll={isFetchingAll} mode={searchMode} privateType={searchPrivateType} onModeChange={(mode, privateType) => {
                         setSearchMode(mode);
                         if (privateType) {
                             setSearchPrivateType(privateType);
                         }
                     }}/>
 
-            {result && fetchType === "single" && (<div className="mt-4 space-y-3">
-                <div className="flex justify-start">
-                  <Button variant="outline" onClick={handleBackToHomeResult} className="flex items-center gap-2">
-                    <ArrowLeft className="h-4 w-4"/>
-                    Back to Home
-                  </Button>
-                </div>
+            {showSingleResult && result && (<div className="mt-4 space-y-3">
                 <MediaList accountInfo={result.account_info} timeline={result.timeline} totalUrls={result.total_urls} fetchedMediaType={fetchedMediaType} newMediaCount={newMediaCount}/>
               </div>)}
           </>);
         }
     };
+    const hasNavigableResult = result !== null && fetchType === "single";
     const usesWideContent = currentPage === "main"
-        ? fetchType === "multiple" || !!result
+        ? fetchType === "multiple" || (hasNavigableResult && isResultViewActive)
         : !["settings", "support"].includes(currentPage);
     return (<TooltipProvider>
       <div className="h-screen overflow-hidden bg-background">
         <DependencySetupDialog />
-        <TitleBar />
+        <TitleBar canGoBack={currentPage === "main" && hasNavigableResult && isResultViewActive} canGoForward={currentPage === "main" && hasNavigableResult && !isResultViewActive} navigationDisabled={loading} onBack={handleResultBack} onForward={handleResultForward}/>
         <Sidebar currentPage={currentPage} onPageChange={handlePageChange}/>
 
         <div id="app-content-scroll" className="fixed top-10 right-0 bottom-0 left-14 overflow-y-auto overflow-x-hidden">
@@ -1522,6 +1550,33 @@ function App() {
             </div>
           </div>
         </div>
+
+        <Dialog open={showUpdateDialog} onOpenChange={setShowUpdateDialog}>
+          <DialogContent className="sm:max-w-125 [&>button]:hidden">
+            <DialogHeader>
+              <DialogTitle>Update Available</DialogTitle>
+              <DialogDescription>
+                A new version (v{updateInfo?.version || ""}) is available. You're on v{CURRENT_VERSION}
+              </DialogDescription>
+            </DialogHeader>
+            {updateInfo?.changelog ? (<div className="custom-scrollbar max-h-72 overflow-y-auto rounded-md border bg-muted/40 p-3">
+                <MarkdownLite content={updateInfo.changelog}/>
+              </div>) : (<p className="text-sm text-muted-foreground">No changelog was provided for this release.</p>)}
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowUpdateDialog(false)}>
+                Download Later
+              </Button>
+              <Button onClick={() => {
+            if (updateInfo) {
+                openExternal(updateInfo.url);
+            }
+            setShowUpdateDialog(false);
+        }}>
+                Download Now
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={showUnsavedChangesDialog} onOpenChange={(open) => {
             if (open) {

@@ -1,4 +1,5 @@
 import { GetDefaults } from "../../wailsjs/go/main/App";
+import { normalizeBaseColorName, normalizeThemeName, type BaseColorName, type ThemeName } from "./themes";
 export type BuiltInFontFamily = "google-sans" | "inter" | "poppins" | "roboto" | "dm-sans" | "plus-jakarta-sans" | "manrope" | "space-grotesk" | "noto-sans" | "nunito-sans" | "figtree" | "raleway" | "public-sans" | "outfit" | "jetbrains-mono" | "geist-sans" | "bricolage-grotesque";
 export type CustomFontFamily = `custom-${string}`;
 export type FontFamily = BuiltInFontFamily | CustomFontFamily;
@@ -145,17 +146,26 @@ const MAX_CONCURRENT_DOWNLOADS = 50;
 const DEFAULT_RETRY_ATTEMPTS = 1;
 const MIN_RETRY_ATTEMPTS = 1;
 const MAX_RETRY_ATTEMPTS = 5;
+const DEFAULT_DOWNLOAD_SPEED_LIMIT_KBPS = 0;
+const MAX_DOWNLOAD_SPEED_LIMIT_KBPS = 10 * 1024 * 1024;
+const DEFAULT_DOWNLOAD_DELAY_SECONDS = 0;
+const MAX_DOWNLOAD_DELAY_SECONDS = 60 * 60;
 export interface Settings {
     downloadPath: string;
     concurrentDownloads: number;
     skipExistingFiles: boolean;
     deleteIncompleteFiles: boolean;
     retryAttempts: number;
-    theme: string;
+    downloadSpeedLimitKBps: number;
+    downloadDelaySeconds: number;
+    downloadDelayJitterSeconds: number;
+    baseColor: BaseColorName;
+    theme: ThemeName;
     themeMode: "auto" | "light" | "dark";
     fontFamily: FontFamily;
     customFonts: CustomFontOption[];
     sfxEnabled: boolean;
+    showUpdateNotifications: boolean;
     autoConvertGifs: boolean;
     gifQuality: GifQuality;
     gifResolution: GifResolution;
@@ -179,11 +189,16 @@ export const DEFAULT_SETTINGS: Settings = {
     skipExistingFiles: true,
     deleteIncompleteFiles: true,
     retryAttempts: DEFAULT_RETRY_ATTEMPTS,
+    downloadSpeedLimitKBps: DEFAULT_DOWNLOAD_SPEED_LIMIT_KBPS,
+    downloadDelaySeconds: DEFAULT_DOWNLOAD_DELAY_SECONDS,
+    downloadDelayJitterSeconds: DEFAULT_DOWNLOAD_DELAY_SECONDS,
+    baseColor: "neutral",
     theme: "yellow",
     themeMode: "auto",
     fontFamily: "google-sans",
     customFonts: [],
     sfxEnabled: true,
+    showUpdateNotifications: true,
     autoConvertGifs: false,
     gifQuality: "fast",
     gifResolution: "original",
@@ -449,6 +464,19 @@ function normalizeRetryAttempts(value: unknown): number {
     }
     return rounded;
 }
+function normalizeDownloadSpeedLimit(value: unknown): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return DEFAULT_DOWNLOAD_SPEED_LIMIT_KBPS;
+    }
+    return Math.min(MAX_DOWNLOAD_SPEED_LIMIT_KBPS, Math.max(0, Math.round(value)));
+}
+function normalizeDownloadDelay(value: unknown): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return DEFAULT_DOWNLOAD_DELAY_SECONDS;
+    }
+    const milliseconds = Math.round(Math.min(MAX_DOWNLOAD_DELAY_SECONDS, Math.max(0, value)) * 1000);
+    return milliseconds / 1000;
+}
 function normalizeTemplateTokens(value: unknown, fallback: string): string {
     if (typeof value !== "string") {
         return fallback;
@@ -509,13 +537,20 @@ async function fetchDefaultPath(): Promise<string> {
 }
 function toNormalizedSettings(settings: Partial<Settings>): Settings {
     const customFonts = normalizeCustomFonts(settings.customFonts);
+    const baseColor = normalizeBaseColorName(settings.baseColor);
     return {
         ...DEFAULT_SETTINGS,
         ...settings,
+        baseColor,
+        theme: normalizeThemeName(settings.theme, baseColor),
         concurrentDownloads: normalizeConcurrentDownloads(settings.concurrentDownloads),
         skipExistingFiles: normalizeBoolean(settings.skipExistingFiles, DEFAULT_SETTINGS.skipExistingFiles),
         deleteIncompleteFiles: normalizeBoolean(settings.deleteIncompleteFiles, DEFAULT_SETTINGS.deleteIncompleteFiles),
         retryAttempts: normalizeRetryAttempts(settings.retryAttempts),
+        downloadSpeedLimitKBps: normalizeDownloadSpeedLimit(settings.downloadSpeedLimitKBps),
+        downloadDelaySeconds: normalizeDownloadDelay(settings.downloadDelaySeconds),
+        downloadDelayJitterSeconds: normalizeDownloadDelay(settings.downloadDelayJitterSeconds),
+        showUpdateNotifications: normalizeBoolean(settings.showUpdateNotifications, DEFAULT_SETTINGS.showUpdateNotifications),
         autoConvertGifs: normalizeBoolean(settings.autoConvertGifs, DEFAULT_SETTINGS.autoConvertGifs),
         filenameTemplate: normalizeFilenameTemplate(settings.filenameTemplate),
         folderTemplate: normalizeFolderTemplate(settings.folderTemplate),

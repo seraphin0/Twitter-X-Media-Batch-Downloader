@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,14 +6,14 @@ import { InputWithContext } from "@/components/ui/input-with-context";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Check, Download, ExternalLink, FolderOpen, Info, MonitorCog, PackageSearch, Plus, RotateCcw, Save, Trash2, FileSignature } from "lucide-react";
+import { Check, CircleQuestionMark, Download, ExternalLink, FolderOpen, MonitorCog, PackageSearch, Plus, RotateCcw, Save, Trash2, FileSignature } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { getSettings, getSettingsWithDefaults, saveSettings, resetToDefaultSettings, applyThemeMode, applyFont, getFontOptions, parseGoogleFontUrl, loadGoogleFontUrl, loadCustomFonts, saveCustomFonts, DEFAULT_FILENAME_TEMPLATE, FILENAME_TEMPLATE_VARIABLES, renderFilenameTemplate, SAMPLE_FILENAME_DATA, DEFAULT_FOLDER_TEMPLATE, FOLDER_TEMPLATE_VARIABLES, renderFolderTemplate, SAMPLE_FOLDER_DATA, type Settings as SettingsType, type FontFamily, type GifQuality, type GifResolution, type CustomFontFamily } from "@/lib/settings";
 import { FormatEditor } from "@/components/FormatEditor";
 import { getCachedDependencyStatus, setCachedDependencyStatus } from "@/lib/runtime-cache";
-import { themes, applyTheme } from "@/lib/themes";
+import { baseColors, getThemesForBaseColor, normalizeThemeName, applyTheme, type BaseColorName } from "@/lib/themes";
 import { compareVersionNumbers } from "@/lib/version";
 import { SelectFolder, IsExtractorInstalled, DownloadExtractor, IsFFmpegInstalled, DownloadFFmpeg, IsExifToolInstalled, DownloadExifTool } from "../../wailsjs/go/main/App";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
@@ -24,6 +24,7 @@ interface DependencyVersionStatus {
 }
 type DependencyVersionMethod = "GetExtractorVersionStatus" | "GetFFmpegVersionStatus" | "GetExifToolVersionStatus";
 type SettingsTab = "general" | "downloads" | "naming" | "dependencies";
+const THEME_PREVIEW_DEBOUNCE_MS = 50;
 interface SettingsPageProps {
     onUnsavedChangesChange?: (hasUnsavedChanges: boolean) => void;
     onResetRequest?: (resetFn: () => void) => void;
@@ -84,14 +85,75 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
     const exiftoolUpdateAvailable = hasNewDependencyVersion(exiftoolInstalledVersion, exiftoolLatestVersion);
     const parsedAddFont = parseGoogleFontUrl(addFontUrl);
     const fontOptions = getFontOptions(tempSettings.customFonts);
+    const availableThemes = getThemesForBaseColor(tempSettings.baseColor);
     const hasUnsavedChanges = JSON.stringify(savedSettings) !== JSON.stringify(tempSettings);
+    const themePreviewTimerRef = useRef<number | null>(null);
+    const selectedThemeConfigRef = useRef({
+        baseColor: tempSettings.baseColor,
+        theme: tempSettings.theme,
+    });
+    const cancelThemePreview = useCallback(() => {
+        if (themePreviewTimerRef.current !== null) {
+            window.clearTimeout(themePreviewTimerRef.current);
+            themePreviewTimerRef.current = null;
+        }
+    }, []);
+    const previewThemeConfig = useCallback((themeName: SettingsType["theme"], baseColorName: BaseColorName) => {
+        cancelThemePreview();
+        themePreviewTimerRef.current = window.setTimeout(() => {
+            themePreviewTimerRef.current = null;
+            applyTheme(themeName, baseColorName);
+        }, THEME_PREVIEW_DEBOUNCE_MS);
+    }, [cancelThemePreview]);
+    const previewTheme = useCallback((themeName: SettingsType["theme"]) => {
+        previewThemeConfig(themeName, selectedThemeConfigRef.current.baseColor);
+    }, [previewThemeConfig]);
+    const previewBaseColor = useCallback((baseColorName: BaseColorName) => {
+        const themeName = normalizeThemeName(selectedThemeConfigRef.current.theme, baseColorName);
+        previewThemeConfig(themeName, baseColorName);
+    }, [previewThemeConfig]);
+    const restoreSelectedTheme = useCallback(() => {
+        cancelThemePreview();
+        const selectedTheme = selectedThemeConfigRef.current;
+        applyTheme(selectedTheme.theme, selectedTheme.baseColor);
+    }, [cancelThemePreview]);
+    const handleThemeChange = useCallback((themeName: SettingsType["theme"]) => {
+        cancelThemePreview();
+        const baseColorName = selectedThemeConfigRef.current.baseColor;
+        selectedThemeConfigRef.current = { baseColor: baseColorName, theme: themeName };
+        applyTheme(themeName, baseColorName);
+        setTempSettings((prev) => ({ ...prev, theme: themeName }));
+    }, [cancelThemePreview]);
+    const handleBaseColorChange = useCallback((baseColorName: BaseColorName) => {
+        cancelThemePreview();
+        const themeName = normalizeThemeName(selectedThemeConfigRef.current.theme, baseColorName);
+        selectedThemeConfigRef.current = { baseColor: baseColorName, theme: themeName };
+        applyTheme(themeName, baseColorName);
+        setTempSettings((prev) => ({ ...prev, baseColor: baseColorName, theme: themeName }));
+    }, [cancelThemePreview]);
     const resetToSaved = useCallback(() => {
+        cancelThemePreview();
         const freshSavedSettings = getSettings();
+        selectedThemeConfigRef.current = {
+            baseColor: freshSavedSettings.baseColor,
+            theme: freshSavedSettings.theme,
+        };
         flushSync(() => {
             setTempSettings(freshSavedSettings);
             setIsDark(document.documentElement.classList.contains("dark"));
         });
-    }, []);
+    }, [cancelThemePreview]);
+    useEffect(() => {
+        selectedThemeConfigRef.current = {
+            baseColor: tempSettings.baseColor,
+            theme: tempSettings.theme,
+        };
+    }, [tempSettings.baseColor, tempSettings.theme]);
+    useEffect(() => () => {
+        cancelThemePreview();
+        const persistedSettings = getSettings();
+        applyTheme(persistedSettings.theme, persistedSettings.baseColor);
+    }, [cancelThemePreview]);
     useEffect(() => {
         if (onResetRequest) {
             onResetRequest(resetToSaved);
@@ -161,25 +223,25 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
     };
     useEffect(() => {
         applyThemeMode(savedSettings.themeMode);
-        applyTheme(savedSettings.theme);
+        applyTheme(savedSettings.theme, savedSettings.baseColor);
         const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
         const handleChange = () => {
             if (savedSettings.themeMode === "auto") {
                 applyThemeMode("auto");
-                applyTheme(savedSettings.theme);
+                applyTheme(savedSettings.theme, savedSettings.baseColor);
             }
         };
         mediaQuery.addEventListener("change", handleChange);
         return () => mediaQuery.removeEventListener("change", handleChange);
-    }, [savedSettings.themeMode, savedSettings.theme]);
+    }, [savedSettings.themeMode, savedSettings.baseColor, savedSettings.theme]);
     useEffect(() => {
         applyThemeMode(tempSettings.themeMode);
-        applyTheme(tempSettings.theme);
+        applyTheme(tempSettings.theme, tempSettings.baseColor);
         applyFont(tempSettings.fontFamily, tempSettings.customFonts);
         setTimeout(() => {
             setIsDark(document.documentElement.classList.contains("dark"));
         }, 0);
-    }, [tempSettings.themeMode, tempSettings.theme, tempSettings.fontFamily, tempSettings.customFonts]);
+    }, [tempSettings.themeMode, tempSettings.baseColor, tempSettings.theme, tempSettings.fontFamily, tempSettings.customFonts]);
     useEffect(() => {
         if (showAddFontDialog && parsedAddFont) {
             loadGoogleFontUrl(parsedAddFont.url, "twitter-media-add-font-preview");
@@ -215,7 +277,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
         setTempSettings(defaultSettings);
         setSavedSettings(defaultSettings);
         applyThemeMode(defaultSettings.themeMode);
-        applyTheme(defaultSettings.theme);
+        applyTheme(defaultSettings.theme, defaultSettings.baseColor);
         applyFont(defaultSettings.fontFamily, defaultSettings.customFonts);
         setShowResetConfirm(false);
         toast.success("Settings reset to default");
@@ -372,33 +434,66 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
       </div>
 
       <div className="pt-4">
-        {activeTab === "general" && (<div className="max-w-3xl space-y-4">
+        {activeTab === "general" && (<div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] md:gap-6">
             <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="theme-mode">Mode</Label>
-                <Select value={tempSettings.themeMode} onValueChange={(value: "auto" | "light" | "dark") => setTempSettings((prev) => ({ ...prev, themeMode: value }))}>
-                  <SelectTrigger id="theme-mode">
-                    <SelectValue placeholder="Select theme mode"/>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">Auto</SelectItem>
-                    <SelectItem value="light">Light</SelectItem>
-                    <SelectItem value="dark">Dark</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-[8rem_8rem] gap-4">
+                <div className="min-w-0 space-y-2">
+                  <Label htmlFor="theme-mode">Mode</Label>
+                  <Select value={tempSettings.themeMode} onValueChange={(value: "auto" | "light" | "dark") => setTempSettings((prev) => ({ ...prev, themeMode: value }))}>
+                    <SelectTrigger id="theme-mode" className="w-full">
+                      <SelectValue placeholder="Select theme mode"/>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto</SelectItem>
+                      <SelectItem value="light">Light</SelectItem>
+                      <SelectItem value="dark">Dark</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="min-w-0 space-y-2">
+                  <Label htmlFor="base-color">Base Color</Label>
+                  <Select value={tempSettings.baseColor} onValueChange={(value) => handleBaseColorChange(value as BaseColorName)} onOpenChange={(open) => {
+                if (!open) {
+                    restoreSelectedTheme();
+                }
+            }}>
+                    <SelectTrigger id="base-color" className="w-full">
+                      <SelectValue placeholder="Select a base color"/>
+                    </SelectTrigger>
+                    <SelectContent onMouseLeave={restoreSelectedTheme}>
+                      {baseColors.map((baseColor) => (<SelectItem key={baseColor.name} value={baseColor.name} onMouseMove={() => previewBaseColor(baseColor.name)} onFocus={() => previewBaseColor(baseColor.name)}>
+                          <span className="flex items-center gap-2">
+                            <span className="h-3 w-3 rounded-full border border-border" style={{
+                    backgroundColor: isDark
+                        ? baseColor.cssVars.dark["muted-foreground"]
+                        : baseColor.cssVars.light["muted-foreground"],
+                }}/>
+                            {baseColor.label}
+                          </span>
+                        </SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="theme">Accent</Label>
-                <Select value={tempSettings.theme} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, theme: value }))}>
-                  <SelectTrigger id="theme">
+                <Label htmlFor="theme">Theme</Label>
+                <Select value={tempSettings.theme} onValueChange={(value) => handleThemeChange(value as SettingsType["theme"])} onOpenChange={(open) => {
+                if (!open) {
+                    restoreSelectedTheme();
+                }
+            }}>
+                  <SelectTrigger id="theme" className="w-32">
                     <SelectValue placeholder="Select a theme"/>
                   </SelectTrigger>
-                  <SelectContent>
-                    {themes.map((theme) => (<SelectItem key={theme.name} value={theme.name}>
+                  <SelectContent onMouseLeave={restoreSelectedTheme}>
+                    {availableThemes.map((theme) => (<SelectItem key={theme.name} value={theme.name} onMouseMove={() => previewTheme(theme.name)} onFocus={() => previewTheme(theme.name)}>
                         <span className="flex items-center gap-2">
                           <span className="h-3 w-3 rounded-full border border-border" style={{
-                    backgroundColor: isDark ? theme.cssVars.dark.primary : theme.cssVars.light.primary
+                    backgroundColor: isDark
+                        ? theme.cssVars.dark[theme.name === tempSettings.baseColor ? "muted-foreground" : "primary"]
+                        : theme.cssVars.light[theme.name === tempSettings.baseColor ? "muted-foreground" : "primary"],
                 }}/>
                           {theme.label}
                         </span>
@@ -444,14 +539,19 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
               </div>
 
               <div className="flex items-center gap-3 pt-2">
-                <Label htmlFor="sfx-enabled" className="cursor-pointer text-sm">Sound Effects</Label>
                 <Switch id="sfx-enabled" checked={tempSettings.sfxEnabled} onCheckedChange={(checked) => setTempSettings((prev) => ({ ...prev, sfxEnabled: checked }))}/>
+                <Label htmlFor="sfx-enabled" className="cursor-pointer text-sm">Sound Effects</Label>
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
+                <Switch id="show-update-notifications" checked={tempSettings.showUpdateNotifications} onCheckedChange={(checked) => setTempSettings((prev) => ({ ...prev, showUpdateNotifications: checked }))}/>
+                <Label htmlFor="show-update-notifications" className="cursor-pointer text-sm">Update Notifications</Label>
               </div>
             </div>
-          </div>)}
 
-        {activeTab === "downloads" && (<div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] md:gap-6">
-            <div className="space-y-4">
+            <div aria-hidden="true" className="hidden bg-border md:block"/>
+
+            <div className="space-y-6">
               <div className="space-y-2">
                 <Label htmlFor="download-path">Download Path</Label>
                 <div className="flex gap-2">
@@ -464,66 +564,165 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
               </div>
 
               <div className="space-y-4">
-                <div className="flex flex-wrap gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="concurrent-downloads" className="flex items-center gap-2">
-                      Concurrent Downloads
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p>How many media files can download at the same time.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </Label>
-                    <Select value={String(tempSettings.concurrentDownloads || 10)} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, concurrentDownloads: parseInt(value, 10) }))}>
-                      <SelectTrigger id="concurrent-downloads" className="w-fit">
-                        <SelectValue placeholder="10"/>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40, 50].map((value) => (<SelectItem key={value} value={String(value)}>
-                            {value}
-                          </SelectItem>))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="retry-attempts" className="flex items-center gap-2">
-                      Retry Attempts
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p>How many times to retry a failed download before giving up.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </Label>
-                    <Select value={String(tempSettings.retryAttempts)} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, retryAttempts: parseInt(value, 10) }))}>
-                      <SelectTrigger id="retry-attempts" className="w-fit">
-                        <SelectValue placeholder="1"/>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[1, 2, 3, 4, 5].map((value) => (<SelectItem key={value} value={String(value)}>
-                            {value}
-                          </SelectItem>))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-4">
-                  <Label htmlFor="skip-existing-files" className="cursor-pointer">Skip Existing Files</Label>
+                <Label>File Handling</Label>
+                <div className="flex items-center gap-3">
                   <Switch id="skip-existing-files" checked={tempSettings.skipExistingFiles} onCheckedChange={(checked) => setTempSettings((prev) => ({ ...prev, skipExistingFiles: checked }))}/>
+                  <Label htmlFor="skip-existing-files" className="cursor-pointer font-normal">Skip Existing Files</Label>
                 </div>
-
-                <div className="flex items-center justify-between gap-4">
-                  <Label htmlFor="delete-incomplete-files" className="cursor-pointer">Delete Incomplete Files</Label>
+                <div className="flex items-center gap-3">
                   <Switch id="delete-incomplete-files" checked={tempSettings.deleteIncompleteFiles} onCheckedChange={(checked) => setTempSettings((prev) => ({ ...prev, deleteIncompleteFiles: checked }))}/>
+                  <Label htmlFor="delete-incomplete-files" className="cursor-pointer font-normal">Delete Incomplete Files</Label>
                 </div>
               </div>
+
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2">
+                  GIF Conversion
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <CircleQuestionMark className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p>Quality settings for converting Twitter's MP4 into actual GIF files.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </Label>
+                <div className="flex items-center gap-3">
+                  <Switch id="auto-convert-gifs" checked={tempSettings.autoConvertGifs} onCheckedChange={(checked) => setTempSettings((prev) => ({ ...prev, autoConvertGifs: checked }))} disabled={!ffmpegInstalled}/>
+                  <Label htmlFor="auto-convert-gifs" className={!ffmpegInstalled ? "text-muted-foreground" : "cursor-pointer"}>Auto Convert GIFs</Label>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="gif-quality" className={!ffmpegInstalled || !tempSettings.autoConvertGifs ? "text-muted-foreground" : undefined}>GIF Quality</Label>
+                  <div className="flex items-center gap-2">
+                    <Select value={tempSettings.gifQuality} onValueChange={(value: GifQuality) => {
+                setTempSettings((prev) => ({
+                    ...prev,
+                    gifQuality: value,
+                }));
+            }} disabled={!ffmpegInstalled || !tempSettings.autoConvertGifs}>
+                      <SelectTrigger id="gif-quality" className="w-fit">
+                        <SelectValue placeholder="Select quality"/>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="fast">Fast</SelectItem>
+                        <SelectItem value="better">Better</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={tempSettings.gifResolution} onValueChange={(value: GifResolution) => setTempSettings((prev) => ({ ...prev, gifResolution: value }))} disabled={!ffmpegInstalled || !tempSettings.autoConvertGifs}>
+                      <SelectTrigger id="gif-resolution" className="w-fit">
+                        <SelectValue placeholder="Resolution"/>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="original">Original</SelectItem>
+                        <SelectItem value="high">High (800px)</SelectItem>
+                        <SelectItem value="medium">Medium (600px)</SelectItem>
+                        <SelectItem value="low">Low (400px)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>)}
+
+        {activeTab === "downloads" && (<div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] md:gap-6">
+            <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Label>Download Controls</Label>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <CircleQuestionMark className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs">
+                        <p>The speed limit is shared by all concurrent downloads. Delay spaces out media requests and adds an optional random variation.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="concurrent-downloads" className="flex items-center gap-2 text-xs">
+                        Concurrent Downloads
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <CircleQuestionMark className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p>How many media files can download at the same time.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Select value={String(tempSettings.concurrentDownloads || 10)} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, concurrentDownloads: parseInt(value, 10) }))}>
+                        <SelectTrigger id="concurrent-downloads" className="w-24">
+                          <SelectValue placeholder="10"/>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40, 50].map((value) => (<SelectItem key={value} value={String(value)}>
+                              {value}
+                            </SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="retry-attempts" className="flex items-center gap-2 text-xs">
+                        Retry Attempts
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <CircleQuestionMark className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p>How many times to retry a failed download before giving up.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Select value={String(tempSettings.retryAttempts)} onValueChange={(value) => setTempSettings((prev) => ({ ...prev, retryAttempts: parseInt(value, 10) }))}>
+                        <SelectTrigger id="retry-attempts" className="w-24">
+                          <SelectValue placeholder="1"/>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[1, 2, 3, 4, 5].map((value) => (<SelectItem key={value} value={String(value)}>
+                              {value}
+                            </SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="download-speed-limit" className="text-xs">Speed Limit</Label>
+                      <div className="flex items-center gap-2">
+                        <InputWithContext id="download-speed-limit" type="number" min="0" max="10485760" step="1" value={tempSettings.downloadSpeedLimitKBps} onChange={(e) => {
+                const value = Number(e.target.value);
+                setTempSettings((prev) => ({ ...prev, downloadSpeedLimitKBps: Number.isFinite(value) ? Math.min(10485760, Math.max(0, Math.round(value))) : 0 }));
+            }} className="w-24"/>
+                        <span className="text-xs text-muted-foreground">KB/s</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="download-delay" className="text-xs">Base Delay</Label>
+                      <div className="flex items-center gap-2">
+                        <InputWithContext id="download-delay" type="number" min="0" max="3600" step="0.1" value={tempSettings.downloadDelaySeconds} onChange={(e) => {
+                const value = Number(e.target.value);
+                setTempSettings((prev) => ({ ...prev, downloadDelaySeconds: Number.isFinite(value) ? Math.min(3600, Math.max(0, value)) : 0 }));
+            }} className="w-24"/>
+                        <span className="text-xs text-muted-foreground">sec</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="download-delay-jitter" className="text-xs">Random Extra</Label>
+                      <div className="flex items-center gap-2">
+                        <InputWithContext id="download-delay-jitter" type="number" min="0" max="3600" step="0.1" value={tempSettings.downloadDelayJitterSeconds} onChange={(e) => {
+                const value = Number(e.target.value);
+                setTempSettings((prev) => ({ ...prev, downloadDelayJitterSeconds: Number.isFinite(value) ? Math.min(3600, Math.max(0, value)) : 0 }));
+            }} className="w-24"/>
+                        <span className="text-xs text-muted-foreground">sec</span>
+                      </div>
+                    </div>
+                  </div>
             </div>
 
             <div aria-hidden="true" className="hidden bg-border md:block"/>
@@ -534,7 +733,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
                   Proxy
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
+                      <CircleQuestionMark className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
                     </TooltipTrigger>
                     <TooltipContent side="top">
                       <p>Supports one proxy or multiple proxies separated by commas. Requests will rotate through them.</p>
@@ -549,7 +748,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
                   Fetch Timeout
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
+                      <CircleQuestionMark className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
                     </TooltipTrigger>
                     <TooltipContent side="top">
                       <p>Timeout in seconds. Fetch stops automatically when reached</p>
@@ -577,55 +776,6 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
             }} placeholder="60" className="w-24"/>
               </div>
 
-              <div className="space-y-4">
-                <div className="space-y-3">
-                  <Label className="flex items-center gap-2">
-                    GIF Conversion
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <p>Quality settings for converting Twitter's MP4 into actual GIF files.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </Label>
-                  <div className="flex items-center justify-between gap-4">
-                    <Label htmlFor="auto-convert-gifs" className={!ffmpegInstalled ? "text-muted-foreground" : undefined}>Auto Convert GIFs</Label>
-                    <Switch id="auto-convert-gifs" checked={tempSettings.autoConvertGifs} onCheckedChange={(checked) => setTempSettings((prev) => ({ ...prev, autoConvertGifs: checked }))} disabled={!ffmpegInstalled}/>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <Label htmlFor="gif-quality" className={!ffmpegInstalled || !tempSettings.autoConvertGifs ? "text-muted-foreground" : undefined}>GIF Quality</Label>
-                    <div className="flex items-center gap-2">
-                      <Select value={tempSettings.gifQuality} onValueChange={(value: GifQuality) => {
-                setTempSettings((prev) => ({
-                    ...prev,
-                    gifQuality: value,
-                }));
-            }} disabled={!ffmpegInstalled || !tempSettings.autoConvertGifs}>
-                        <SelectTrigger id="gif-quality" className="w-fit">
-                          <SelectValue placeholder="Select quality"/>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="fast">Fast</SelectItem>
-                          <SelectItem value="better">Better</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Select value={tempSettings.gifResolution} onValueChange={(value: GifResolution) => setTempSettings((prev) => ({ ...prev, gifResolution: value }))} disabled={!ffmpegInstalled || !tempSettings.autoConvertGifs}>
-                        <SelectTrigger id="gif-resolution" className="w-fit">
-                          <SelectValue placeholder="Resolution"/>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="original">Original</SelectItem>
-                          <SelectItem value="high">High (800px)</SelectItem>
-                          <SelectItem value="medium">Medium (600px)</SelectItem>
-                          <SelectItem value="low">Low (400px)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>)}
 
@@ -650,7 +800,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
                     </span>)}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
+                      <CircleQuestionMark className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
                     </TooltipTrigger>
                     <TooltipContent side="top">
                       <p>Required to fetch media from Twitter/X. Downloaded from the xtractor-binaries GitHub releases.</p>
@@ -684,7 +834,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
                     </span>)}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
+                      <CircleQuestionMark className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
                     </TooltipTrigger>
                     <TooltipContent side="top">
                       <p>FFmpeg is required to convert Twitter's MP4 to actual GIF format</p>
@@ -718,7 +868,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest }: Setting
                     </span>)}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
+                      <CircleQuestionMark className="h-3.5 w-3.5 cursor-help text-muted-foreground"/>
                     </TooltipTrigger>
                     <TooltipContent side="top">
                       <p>ExifTool is required to embed tweet URL and original filename into media file metadata</p>

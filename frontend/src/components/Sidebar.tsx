@@ -131,7 +131,7 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            <p>Support me on Ko-fi</p>
+            <p>Support Me</p>
           </TooltipContent>
         </Tooltip>
       </div>

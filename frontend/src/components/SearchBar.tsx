@@ -11,7 +11,7 @@ import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { cn } from "@/lib/utils";
 import { getSettings, updateSettings, VIDEO_QUALITIES, IMAGE_SIZES, AVATAR_SIZES, BANNER_SIZES, type VideoQuality, type ImageSize, type AvatarSize, type BannerSize } from "@/lib/settings";
 import { GetStoredAuthToken, SetStoredAuthToken } from "../../wailsjs/go/main/App";
-import { AlertCircle, Bookmark, CheckCircle, Clipboard, CloudDownload, Clock, Database, Eye, EyeOff, Globe, Heart, Hourglass, Info, Lock, RotateCcw, SlidersHorizontal, StopCircle, Trash2, User, Users, XCircle } from "lucide-react";
+import { AlertCircle, Bookmark, CheckCircle, CircleQuestionMark, Clipboard, CloudDownload, Clock, Database, Eye, EyeOff, Globe, Heart, Hourglass, Lock, RotateCcw, SlidersHorizontal, StopCircle, Trash2, User, Users, XCircle } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 function formatNumberWithComma(num: number): string {
     return num.toLocaleString();
@@ -325,7 +325,7 @@ export function SearchBar({ username, loading, onUsernameChange, onFetch, onStop
             <Label className="text-sm">Account List</Label>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Info className="h-4 w-4 cursor-help text-muted-foreground"/>
+                <CircleQuestionMark className="h-4 w-4 cursor-help text-muted-foreground"/>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
                 <p className="text-sm">
@@ -703,7 +703,7 @@ export function SearchBar({ username, loading, onUsernameChange, onFetch, onStop
                 <Label htmlFor="shared-auth-token" className="text-sm">Auth Token</Label>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 cursor-help text-muted-foreground"/>
+                    <CircleQuestionMark className="h-4 w-4 cursor-help text-muted-foreground"/>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-sm">
                     <p className="text-sm">{authTokenHelpText}</p>

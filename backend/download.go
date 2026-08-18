@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +21,8 @@ const (
 	MaxConcurrentDownloads     = 50
 	DefaultRetryAttempts       = 2
 	MaxRetryAttempts           = 5
+	MaxDownloadSpeedLimitKBps  = 10 * 1024 * 1024
+	MaxDownloadDelayMillis     = 60 * 60 * 1000
 )
 
 func NormalizeConcurrentDownloads(requested int) int {
@@ -42,22 +45,167 @@ func NormalizeRetryAttempts(requested int) int {
 	return requested
 }
 
+func normalizeDownloadSpeedLimit(requested int) int {
+	if requested < 0 {
+		return 0
+	}
+	if requested > MaxDownloadSpeedLimitKBps {
+		return MaxDownloadSpeedLimitKBps
+	}
+	return requested
+}
+
+func normalizeDownloadDelay(requested int) int {
+	if requested < 0 {
+		return 0
+	}
+	if requested > MaxDownloadDelayMillis {
+		return MaxDownloadDelayMillis
+	}
+	return requested
+}
+
 type DownloadOptions struct {
-	ConcurrentDownloads   int
-	SkipExistingFiles     bool
-	DeleteIncompleteFiles bool
-	RetryAttempts         int
-	FilenameTemplate      string
-	FolderTemplate        string
-	AutoConvertGIFs       bool
-	GIFQuality            string
-	GIFResolution         string
+	ConcurrentDownloads       int
+	SkipExistingFiles         bool
+	DeleteIncompleteFiles     bool
+	RetryAttempts             int
+	DownloadSpeedLimitKBps    int
+	DownloadDelayMillis       int
+	DownloadDelayJitterMillis int
+	FilenameTemplate          string
+	FolderTemplate            string
+	AutoConvertGIFs           bool
+	GIFQuality                string
+	GIFResolution             string
 }
 
 func NormalizeDownloadOptions(options DownloadOptions) DownloadOptions {
 	options.ConcurrentDownloads = NormalizeConcurrentDownloads(options.ConcurrentDownloads)
 	options.RetryAttempts = NormalizeRetryAttempts(options.RetryAttempts)
+	options.DownloadSpeedLimitKBps = normalizeDownloadSpeedLimit(options.DownloadSpeedLimitKBps)
+	options.DownloadDelayMillis = normalizeDownloadDelay(options.DownloadDelayMillis)
+	options.DownloadDelayJitterMillis = normalizeDownloadDelay(options.DownloadDelayJitterMillis)
 	return options
+}
+
+type downloadThrottle struct {
+	speedBytesPerSecond int64
+	delay               time.Duration
+	delayJitter         time.Duration
+
+	requestMu        sync.Mutex
+	nextRequestStart time.Time
+	requestStarted   bool
+
+	bandwidthMu       sync.Mutex
+	nextByteWriteTime time.Time
+}
+
+func newDownloadThrottle(options DownloadOptions) *downloadThrottle {
+	options = NormalizeDownloadOptions(options)
+	if options.DownloadSpeedLimitKBps == 0 && options.DownloadDelayMillis == 0 && options.DownloadDelayJitterMillis == 0 {
+		return nil
+	}
+
+	return &downloadThrottle{
+		speedBytesPerSecond: int64(options.DownloadSpeedLimitKBps) * 1024,
+		delay:               time.Duration(options.DownloadDelayMillis) * time.Millisecond,
+		delayJitter:         time.Duration(options.DownloadDelayJitterMillis) * time.Millisecond,
+	}
+}
+
+func waitUntil(ctx context.Context, deadline time.Time) error {
+	wait := time.Until(deadline)
+	if wait <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (t *downloadThrottle) waitForRequest(ctx context.Context) error {
+	if t == nil || (t.delay == 0 && t.delayJitter == 0) {
+		return nil
+	}
+
+	t.requestMu.Lock()
+	now := time.Now()
+	startAt := now
+	if t.requestStarted && t.nextRequestStart.After(startAt) {
+		startAt = t.nextRequestStart
+	}
+
+	jitter := time.Duration(0)
+	if t.delayJitter > 0 {
+		jitter = time.Duration(rand.Int64N(int64(t.delayJitter) + 1))
+	}
+	t.nextRequestStart = startAt.Add(t.delay + jitter)
+	t.requestStarted = true
+	t.requestMu.Unlock()
+
+	return waitUntil(ctx, startAt)
+}
+
+func (t *downloadThrottle) waitForBytes(ctx context.Context, byteCount int) error {
+	if t == nil || t.speedBytesPerSecond <= 0 || byteCount <= 0 {
+		return nil
+	}
+
+	nanoseconds := (int64(byteCount)*int64(time.Second) + t.speedBytesPerSecond - 1) / t.speedBytesPerSecond
+	duration := time.Duration(nanoseconds)
+
+	t.bandwidthMu.Lock()
+	now := time.Now()
+	if t.nextByteWriteTime.Before(now) {
+		t.nextByteWriteTime = now
+	}
+	t.nextByteWriteTime = t.nextByteWriteTime.Add(duration)
+	writeAt := t.nextByteWriteTime
+	t.bandwidthMu.Unlock()
+
+	return waitUntil(ctx, writeAt)
+}
+
+type throttledWriter struct {
+	ctx      context.Context
+	writer   io.Writer
+	throttle *downloadThrottle
+}
+
+func (w throttledWriter) Write(p []byte) (int, error) {
+	if err := w.throttle.waitForBytes(w.ctx, len(p)); err != nil {
+		return 0, err
+	}
+	return w.writer.Write(p)
+}
+
+func createMediaDownloadClient(customProxy string, options DownloadOptions) *http.Client {
+	client, err := CreateHTTPClient(customProxy, 60*time.Second)
+	if err != nil {
+		client = &http.Client{Timeout: 60 * time.Second}
+	}
+
+	if options.DownloadSpeedLimitKBps > 0 {
+		client.Timeout = 0
+		if transport, ok := client.Transport.(*http.Transport); ok {
+			transport.ResponseHeaderTimeout = 60 * time.Second
+		} else if client.Transport == nil {
+			transport := http.DefaultTransport.(*http.Transport).Clone()
+			transport.ResponseHeaderTimeout = 60 * time.Second
+			client.Transport = transport
+		}
+	}
+
+	return client
 }
 
 type MediaItem struct {
@@ -78,13 +226,8 @@ func DownloadMediaFiles(urls []string, outputDir string, options DownloadOptions
 		return 0, len(urls), fmt.Errorf("failed to create output directory: %v", err)
 	}
 
-	client, err := CreateHTTPClient(customProxy, 60*time.Second)
-	if err != nil {
-
-		client = &http.Client{
-			Timeout: 60 * time.Second,
-		}
-	}
+	client := createMediaDownloadClient(customProxy, options)
+	throttle := newDownloadThrottle(options)
 
 	for _, mediaURL := range urls {
 		filename := extractFilename(mediaURL)
@@ -97,7 +240,7 @@ func DownloadMediaFiles(urls []string, outputDir string, options DownloadOptions
 			}
 		}
 
-		if err := downloadFileWithRetry(context.Background(), client, mediaURL, outputPath, options); err != nil {
+		if err := downloadFileWithRetry(context.Background(), client, mediaURL, outputPath, options, throttle); err != nil {
 			failed++
 			continue
 		}
@@ -197,14 +340,14 @@ func waitForRetry(ctx context.Context, attempt int) error {
 	}
 }
 
-func downloadFileWithRetry(ctx context.Context, client *http.Client, mediaURL, outputPath string, options DownloadOptions) error {
+func downloadFileWithRetry(ctx context.Context, client *http.Client, mediaURL, outputPath string, options DownloadOptions, throttle *downloadThrottle) error {
 	options = NormalizeDownloadOptions(options)
 
 	var lastErr error
 	totalAttempts := options.RetryAttempts + 1
 	for attempt := 1; attempt <= totalAttempts; attempt++ {
 		keepPartialOnFailure := !options.DeleteIncompleteFiles && attempt == totalAttempts
-		lastErr = downloadFileWithContext(ctx, client, mediaURL, outputPath, !options.SkipExistingFiles, keepPartialOnFailure)
+		lastErr = downloadFileWithContext(ctx, client, mediaURL, outputPath, !options.SkipExistingFiles, keepPartialOnFailure, throttle)
 		if lastErr == nil {
 			return nil
 		}
@@ -381,16 +524,8 @@ func DownloadMediaWithMetadataProgressAndStatus(items []MediaItem, outputDir str
 		numWorkers = len(tasks)
 	}
 
-	var sharedClient *http.Client
-	client, err := CreateHTTPClient(customProxy, 60*time.Second)
-	if err != nil {
-
-		sharedClient = &http.Client{
-			Timeout: 60 * time.Second,
-		}
-	} else {
-		sharedClient = client
-	}
+	sharedClient := createMediaDownloadClient(customProxy, options)
+	throttle := newDownloadThrottle(options)
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
@@ -446,7 +581,7 @@ func DownloadMediaWithMetadataProgressAndStatus(items []MediaItem, outputDir str
 						atomic.AddInt64(&downloadedCount, 1)
 						status = "success"
 					}
-				} else if err := downloadFileWithRetry(ctx, client, task.item.URL, task.outputPath, options); err != nil {
+				} else if err := downloadFileWithRetry(ctx, client, task.item.URL, task.outputPath, options, throttle); err != nil {
 					if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 						if itemStatus != nil {
 							itemStatus(task.item.TweetID, task.index, "cancelled")
@@ -539,7 +674,11 @@ func normalizeGIFResolution(resolution string) string {
 	}
 }
 
-func downloadFileWithContext(ctx context.Context, client *http.Client, url, outputPath string, allowOverwrite bool, keepPartialOnFailure bool) error {
+func downloadFileWithContext(ctx context.Context, client *http.Client, url, outputPath string, allowOverwrite bool, keepPartialOnFailure bool, throttle *downloadThrottle) error {
+	if err := throttle.waitForRequest(ctx); err != nil {
+		return err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
@@ -570,7 +709,11 @@ func downloadFileWithContext(ctx context.Context, client *http.Client, url, outp
 		}
 	}()
 
-	_, err = io.Copy(out, resp.Body)
+	writer := io.Writer(out)
+	if throttle != nil && throttle.speedBytesPerSecond > 0 {
+		writer = throttledWriter{ctx: ctx, writer: out, throttle: throttle}
+	}
+	_, err = io.Copy(writer, resp.Body)
 	if err != nil {
 		return err
 	}
@@ -768,7 +911,7 @@ func downloadFile(client *http.Client, url, outputPath string) error {
 		SkipExistingFiles:     false,
 		DeleteIncompleteFiles: true,
 		RetryAttempts:         0,
-	})
+	}, nil)
 }
 
 func DownloadProfileImage(imageURL, outputDir, username, kind, customProxy string) (string, error) {
